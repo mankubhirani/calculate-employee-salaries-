@@ -1,8 +1,10 @@
 import express from 'express';
-import { calculateMonthlyPayroll } from '../controllers/payroll.controller';
+import { calculateMonthlyPayroll, distributePayroll, getPayrollHistory } from '../controllers/payroll.controller';
 
 const router = express.Router();
 
 router.get('/calculate', calculateMonthlyPayroll);
+router.post('/distribute', distributePayroll);
+router.get('/history', getPayrollHistory);
 
 export default router;

@@ -1,46 +1,32 @@
 import { Request, Response } from 'express';
+import { PrismaClient } from '@prisma/client';
 
-// Dummy employee salary data
-const employees = [
-  {
-    id: 1,
-    name: 'Mohit',
-    basic: 30000,
-    hra: 10000,
-    allowances: 5000,
-    deductions: 2000,
-    pf: 1800,
-    tax: 2200
-  },
-  {
-    id: 2,
-    name: 'Amit',
-    basic: 25000,
-    hra: 8000,
-    allowances: 4000,
-    deductions: 1500,
-    pf: 1500,
-    tax: 2000
-  }
-];
+const prisma = new PrismaClient();
 
-export const calculateMonthlyPayroll = (req: Request, res: Response) => {
+// GET /payroll/calculate?month=YYYY-MM
+export const calculateMonthlyPayroll = async (req: Request, res: Response) => {
   const { month } = req.query;
-
   if (!month) {
     return res.status(400).json({ error: 'Month query param is required (e.g., ?month=2025-07)' });
   }
 
+  const employees = await prisma.employee.findMany();
   let totalPayout = 0;
   const salaryDetails = employees.map(emp => {
-    const gross = emp.basic + emp.hra + emp.allowances;
-    const totalDeductions = emp.deductions + emp.pf + emp.tax;
-    const net = gross - totalDeductions;
+    const gross = emp.basicSalary + emp.hra + emp.allowance;
+    // Dummy values for tax, pf, deductions (replace with your logic or fetch from Attendance/Salary)
+    const tax = 2000;
+    const pf = 1800;
+    const deductions = 1500;
+    const net = gross - (tax + pf + deductions);
     totalPayout += net;
-
     return {
       employeeId: emp.id,
       name: emp.name,
+      gross,
+      tax,
+      pf,
+      deductions,
       netSalary: net
     };
   });
@@ -49,5 +35,75 @@ export const calculateMonthlyPayroll = (req: Request, res: Response) => {
     message: `Payroll for ${month} calculated`,
     totalPayout,
     employees: salaryDetails
+  });
+};
+
+// POST /payroll/distribute { month: "YYYY-MM" }
+export const distributePayroll = async (req: Request, res: Response) => {
+  const { month } = req.body;
+  if (!month) {
+    return res.status(400).json({ error: 'Month is required in body.' });
+  }
+
+  const employees = await prisma.employee.findMany();
+  let totalPayout = 0;
+  for (const emp of employees) {
+    const gross = emp.basicSalary + emp.hra + emp.allowance;
+    const tax = 2000;
+    const pf = 1800;
+    const deductions = 1500;
+    const net = gross - (tax + pf + deductions);
+    totalPayout += net;
+
+    // Insert salary record for each employee
+    await prisma.salary.create({
+      data: {
+        employeeId: emp.id,
+        month,
+        gross,
+        tax,
+        pf,
+        net,
+        deductions
+      }
+    });
+  }
+
+  // Insert payroll summary for the month
+  await prisma.payroll.create({
+    data: {
+      month,
+      total: totalPayout
+    }
+  });
+
+  res.status(200).json({
+    message: `Payroll for ${month} distributed`,
+    totalPayout
+  });
+};
+
+// GET /payroll/history?month=YYYY-MM
+export const getPayrollHistory = async (req: Request, res: Response) => {
+  const { month } = req.query;
+  if (!month) {
+    return res.status(400).json({ error: 'Month query param is required (e.g., ?month=2025-07)' });
+  }
+
+  // Get payroll summary
+  const payroll = await prisma.payroll.findFirst({ where: { month: String(month) } });
+  if (!payroll) {
+    return res.status(404).json({ error: 'No payroll history found for this month.' });
+  }
+
+  // Get all salary records for the month
+  const salaries = await prisma.salary.findMany({
+    where: { month: String(month) },
+    include: { employee: true }
+  });
+
+  res.status(200).json({
+    payroll,
+    salaries
   });
 };
